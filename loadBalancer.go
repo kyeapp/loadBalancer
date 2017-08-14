@@ -9,7 +9,7 @@ type serverNode struct {
 	id int
 	serverLoad int
 	maxRequestTime int // max amount of time it takes to complete a request
-
+	c chan int
 }
 
 type loadBalancer struct {
@@ -60,14 +60,31 @@ func clearScreen() {
 	}
 }
 
+func runServer(s serverNode) {
+	for {
+		_ = <-s.c
+		time.Sleep(time.Millisecond * time.Duration(rand.Intn(s.maxRequestTime)))
+		s.c <- 1
+	}
+}
+
+func newServer(id int, maxTime int) serverNode {
+	ch := make(chan int)
+	return serverNode{id, 0, maxTime, ch}
+}
+
 func main() {
 	//setup
 	clearScreen()
 	
 	serverNodeList := []serverNode{
-		serverNode{0, 20, 50},
-		serverNode{1, 50, 100},
-		serverNode{2, 100, 150},
+		newServer(0, 50),
+		newServer(1, 100),
+		newServer(2, 150),
+	}
+
+	for _, server := range(serverNodeList) {
+		go runServer(server)
 	}
 
 	for i := 0; i < 10; i++ {
