@@ -3,6 +3,7 @@ package main
 import "time"
 import "fmt"
 import "strings"
+
 //import "math/rand"
 import "os"
 import "strconv"
@@ -13,37 +14,38 @@ type serverNode struct {
 	requestsLost    int
 	currentRequests float64
 	maxRequests     float64
-	min int
-	max int
-	diff int
-	requestTime  int // max amount of time it takes to complete a request +- 10%
+	requestTime     int
 }
 
-func (s *serverNode) processRequest() {
+func (s *serverNode) assignRequest() {
 	if s.currentRequests < s.maxRequests {
 		s.currentRequests++
-		// if you don't contrain the random bounds tightly it could take a while to spool up the average load
-		//time.Sleep(time.Millisecond * time.Duration(rand.Intn(s.requestTime)))
-		time.Sleep(time.Millisecond * time.Duration(s.requestTime))
-		s.currentRequests--
-		s.requestsServed++
 	} else {
-		//request is lost if the server is full
 		s.requestsLost++
+	}
+}
+
+func (s *serverNode) run() {
+	ticker := time.NewTicker(time.Millisecond * time.Duration(s.requestTime))
+	for {
+		_ = <-ticker.C
+		//println(s.id, s.requestTime)
+		if s.currentRequests > 0 {
+			s.currentRequests--
+			s.requestsServed++
+		}
 	}
 }
 
 //input ID, and maxRequestTime
 func newServer(id int, requestTime int) serverNode {
-	return serverNode{id, 0, 0, 0, 32, 0, 0, 0, requestTime-5}
+	return serverNode{id, 0, 0, 0, 100, requestTime - 5}
 }
 
 //=============================================================================================
 type loadBalancer struct {
 	totalrequests int
 }
-
-
 
 //load balancing simulation algorithm
 func roundRobin(serverList []serverNode, reqPerSec int) {
@@ -52,8 +54,9 @@ func roundRobin(serverList []serverNode, reqPerSec int) {
 	delay := 1000000000 / reqPerSec
 	ticker := time.NewTicker(time.Nanosecond * time.Duration(delay))
 	for {
-		_ = <-ticker.C
-		go serverList[i].processRequest()
+		_ = <-ticker.C                   //wait for new request to come in
+		go serverList[i].assignRequest() //assign Request to server
+
 		i++
 		if i == end {
 			i = 0
@@ -63,30 +66,25 @@ func roundRobin(serverList []serverNode, reqPerSec int) {
 }
 
 func loadBar(s serverNode, maxLen int) string {
-	load := s.currentRequests/s.maxRequests
+	load := s.currentRequests / s.maxRequests
 	barLen := int(load * float64(maxLen))
 	bar := strings.Repeat("=", barLen)
 	space := strings.Repeat(" ", maxLen-barLen)
-	return fmt.Sprintf("server_%d [%s%s] %0.2f  served: %d   lost: %d  current: %3.0f", s.id, bar, space, load, s.requestsServed, s.requestsLost, s.currentRequests)
+	return fmt.Sprintf("server_%d [%s%s] %3.0f%%  served: %d   lost: %d  current: %3.0f", s.id, bar, space, load*100, s.requestsServed, s.requestsLost, s.currentRequests)
 }
 
 func updateStats(serverNodeList []serverNode) {
 	ticker := time.NewTicker(time.Millisecond * 500)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				go func() {
-					
-					fmt.Printf("\033[0;0H")
-					fmt.Println(time.Now())
-					for _, serverNode := range serverNodeList {
-						fmt.Println(loadBar(serverNode, 20))
-					}
-				}()
+	for {
+		select {
+		case <-ticker.C:
+			fmt.Printf("\033[0;0H")
+			fmt.Println(time.Now())
+			for _, serverNode := range serverNodeList {
+				fmt.Println(loadBar(serverNode, 20))
 			}
 		}
-	}()
+	}
 
 }
 
@@ -116,6 +114,12 @@ func main() {
 		newServer(2, 150),
 	}
 
-	updateStats(serverNodeList)
+	go updateStats(serverNodeList)
+
+	//start all the servers
+	for i, _ := range serverNodeList {
+		go serverNodeList[i].run()
+	}
+
 	roundRobin(serverNodeList, rps)
 }
