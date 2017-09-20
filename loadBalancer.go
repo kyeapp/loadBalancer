@@ -39,7 +39,7 @@ func (s *serverNode) run() {
 
 //input ID, and maxRequestTime
 func newServer(id int, requestTime int) serverNode {
-	return serverNode{id, 0, 0, 0, 100, requestTime - 5}
+	return serverNode{id, 0, 0, 50, 100, requestTime}
 }
 
 //=============================================================================================
@@ -62,6 +62,38 @@ func roundRobin(serverList []serverNode, reqPerSec int) {
 			i = 0
 		}
 
+	}
+}
+
+func weightedRoundRobin(serverList []serverNode, reqPerSec int) {	
+	total := 0
+	for _, node := range(serverList) {
+		total += node.requestTime
+	}
+
+	var queue []int
+	for i, node := range(serverList) {
+		w := int(float64(total)/float64(node.requestTime)*4)
+		t := make([]int, w, w)
+		for j := range(t) {
+			t[j] = i
+		}
+		queue = append(queue, t...);
+	}
+
+
+	i := 0
+	end := len(queue) -1
+	delay := 1000000000 / reqPerSec
+	ticker := time.NewTicker(time.Nanosecond * time.Duration(delay))
+	for {
+		_ = <-ticker.C                   //wait for new request to come in
+		go serverList[queue[i]].assignRequest() //assign Request to server
+
+		i++
+		if i == end {
+			i = 0
+		}
 	}
 }
 
@@ -121,5 +153,5 @@ func main() {
 		go serverNodeList[i].run()
 	}
 
-	roundRobin(serverNodeList, rps)
+	weightedRoundRobin(serverNodeList, rps)
 }
